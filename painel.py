@@ -22,6 +22,35 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
          "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
 
+DATA_DIR = os.environ.get("PAINEL_DATA", "/root/painel")
+TEMPLATES_FILE = os.path.join(DATA_DIR, "templates.json")
+STATS_FILE = os.path.join(DATA_DIR, "stats.json")
+os.makedirs(DATA_DIR, exist_ok=True)
+FILE_LOCK = threading.Lock()
+
+def load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+def save_json(path, data):
+    with FILE_LOCK:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, path)
+
+def bump_stats(ok):
+    st = load_json(STATS_FILE, {"total_enviados": 0, "total_falhas": 0, "ultimo": ""})
+    if ok:
+        st["total_enviados"] += 1
+    else:
+        st["total_falhas"] += 1
+    st["ultimo"] = datetime.datetime.now().isoformat(timespec="seconds")
+    save_json(STATS_FILE, st)
+
 def mes_ano():
     h = datetime.date.today()
     return MESES[h.month - 1], str(h.year)
@@ -64,7 +93,8 @@ def get_status():
                 pass
     return {"services": services, "queue": queue,
             "sent": tail("sent"), "bounced": tail("bounced"), "deferred": tail("deferred"),
-            "cert_days": cert_days}
+            "cert_days": cert_days,
+            "stats": load_json(STATS_FILE, {"total_enviados": 0, "total_falhas": 0, "ultimo": ""})}
 
 def nome_do_email(e):
     local = e.split("@")[0]
@@ -117,8 +147,10 @@ def start_job(recipients, subject, body_html, pdf_name, pdf_bytes):
                 send_one(to, aplica(subject, nome, to), aplica(body_html, nome, to),
                          pdf_name, pdf_bytes)
                 job["results"].append([to, True, ""])
+                bump_stats(True)
             except Exception as e:
                 job["results"].append([to, False, str(e)[:150]])
+                bump_stats(False)
             job["done"] += 1
             if job["done"] < job["total"]:
                 time.sleep(PAUSE_S)
@@ -219,6 +251,11 @@ background:#0d1116;word-break:break-all}
 li.ok{border-color:var(--ok)}li.bad{border-color:var(--bad)}li.warn{border-color:var(--amber)}
 .empty{color:var(--dim);font-size:12px;font-style:italic}
 .foot{margin-top:22px;color:var(--dim);font-size:10px;letter-spacing:1px;text-align:center}
+.tpllist li{display:flex;justify-content:space-between;gap:10px;align-items:center;color:var(--txt)}
+.tpllist .tinfo{flex:1;min-width:0}
+.tpllist .tnome{font-weight:700;color:var(--amber);font-size:12px}
+.tpllist .tsub{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#tpnome{text-align:left}
 </style></head><body><div class="wrap">
 <header><div><h1>&#9632; PAINEL DE FATURAS <span class="cursor">&#9608;</span></h1>
 <div class="sub">envio pela porta 25 &middot; mail.cardfatpromo.com &middot; 13.140.139.10</div></div>
@@ -230,7 +267,7 @@ li.ok{border-color:var(--ok)}li.bad{border-color:var(--bad)}li.warn{border-color
 <label>E-mails dos clientes <span id="cnt" class="cnt"></span></label>
 <textarea id="lista" name="lista" placeholder="Um por linha (de 1 a 200).&#10;O nome do cliente sai do proprio e-mail: maria.souza@gmail.com vira Maria.&#10;Aceita tambem Nome Sobrenome;email@cliente.com. Duplicados ignorados."></textarea>
 <label>Assunto &mdash; {{mes}} = m&ecirc;s atual autom&aacute;tico &middot; {{nome}} = primeiro nome do e-mail</label>
-<input name="subject" value="Sua fatura do mês {{mes}}" maxlength="120">
+<input id="subject" name="subject" value="Sua fatura do mês {{mes}}" maxlength="120">
 <label>Mensagem em HTML &mdash; aceita {{nome}} {{email}} {{mes}} {{ano}}</label>
 <textarea id="corpo" name="body" spellcheck="false"></textarea>
 <div class="prow"><label>Pr&eacute;-visualiza&ccedil;&atilde;o do e-mail (como o cliente vai receber)</label>
@@ -252,9 +289,16 @@ li.ok{border-color:var(--ok)}li.bad{border-color:var(--bad)}li.warn{border-color
 <h3 class="bad">Rejeitados</h3><ul id="bounced"></ul>
 <h3 class="warn">Na fila / recorrentes</h3><ul id="deferred"></ul>
 <div class="foot">atualiza a cada 10s &middot; ultima atualizacao: <span id="ts"></span></div></div>
-</div></div>
+</div>
+<div class="card tbox"><h2>Modelos salvos (assunto + HTML)</h2>
+<div class="prow"><input id="tpnome" placeholder="Nome do modelo (ex.: fatura de novembro)" maxlength="60">
+<button id="tpsalvar" class="mini" type="button">&#128190; salvar assunto + HTML atuais</button></div>
+<ul id="tpls" class="tpllist"></ul>
+<div class="foot">os modelos ficam salvos no servidor e o contador soma todos os envios feitos</div>
+</div>
+</div>
 <script>
-/*INI_OK_V4*/
+/*INI_OK_V5*/
 const DEFAULT_TMPL='<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;border:1px solid #eee;border-radius:6px;overflow:hidden">\\n  <div style="background:#ffb020;color:#161000;padding:16px 20px;font-size:18px;font-weight:bold">Sua fatura do mes chegou</div>\\n  <div style="padding:20px;color:#333;font-size:14px;line-height:1.6">\\n    Ol&aacute; {{nome}},<br><br>\\n    Sua fatura do m&ecirc;s <strong>{{mes}}</strong> de {{ano}} est&aacute; dispon&iacute;vel e est&aacute; prestes a vencer.<br><br>\\n    Segue em anexo o detalhamento. Qualquer d&uacute;vida, responda este e-mail.\\n    <br><br>\\n    Atenciosamente,<br><strong>CardFat Promo</strong>\\n  </div>\\n  <div style="background:#fafafa;color:#999;font-size:11px;padding:12px 20px;border-top:1px solid #eee">E-mail transacional - CardFat Promo</div>\\n</div>';
 const $=id=>document.getElementById(id);
 const REX=/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;
@@ -271,6 +315,29 @@ $('lista').value.split(/[\\n;,\\t]/).forEach(p=>{p=p.trim();if(!p)return;
 if(REX.test(p)){if(seen.has(p.toLowerCase()))dup++;else{seen.add(p.toLowerCase());n++}}});
 $('cnt').textContent=n?'· '+n+' e-mail'+(n>1?'s':'')+(dup?' ('+dup+' duplicado'+(dup>1?'s':'')+' ignorado'+(dup>1?'s':'')+')':''):''}
 $('lista').addEventListener('input',contar);contar();
+async function loadTpls(){const r=await(await fetch('/api/templates')).json();
+ const ul=$('tpls');ul.innerHTML='';
+ (r.templates||[]).forEach(t=>{const li=document.createElement('li');
+  const info=document.createElement('div');info.className='tinfo';
+  const nm=document.createElement('div');nm.className='tnome';nm.textContent=t.nome+' · '+t.salvo;
+  const sb=document.createElement('div');sb.className='tsub';sb.textContent=t.subject;
+  info.appendChild(nm);info.appendChild(sb);
+  const usar=document.createElement('button');usar.className='mini';usar.textContent='usar';
+  usar.onclick=()=>{$('subject').value=t.subject;$('corpo').value=t.html;upd();
+   window.scrollTo({top:0,behavior:'smooth'})};
+  const del=document.createElement('button');del.className='mini';
+  del.style.borderColor='var(--bad)';del.style.color='var(--bad)';del.textContent='x';
+  del.onclick=async()=>{const rr=await(await fetch('/api/templates',{method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({action:'del',id:t.id})})).json();if(rr.ok)loadTpls()};
+  li.appendChild(info);li.appendChild(usar);li.appendChild(del);ul.appendChild(li)});
+ if(!ul.children.length){const li=document.createElement('li');li.className='empty';
+  li.textContent='nenhum modelo salvo ainda';ul.appendChild(li)}}
+$('tpsalvar').onclick=async()=>{const r=await(await fetch('/api/templates',{method:'POST',
+ headers:{'Content-Type':'application/json'},
+ body:JSON.stringify({nome:$('tpnome').value,subject:$('subject').value,html:$('corpo').value})})).json();
+ if(r.ok){$('tpnome').value='';loadTpls()}else alert(r.msg||'erro ao salvar')};
+loadTpls();
 let jobId=null,shown=0,failed=[];
 $('f').onsubmit=async e=>{e.preventDefault();const r=$('res');r.style.display='block';
 r.className='';r.textContent='iniciando...';
@@ -301,6 +368,9 @@ async function refresh(){
            d.queue==='0'?'on':'warn');
   h+=chip('certificado',(d.cert_days===null?'—':d.cert_days+' dias'),
            d.cert_days===null?'':(d.cert_days>30?'on':'warn'));
+  const tot=(d.stats&&d.stats.total_enviados)||0, fal=(d.stats&&d.stats.total_falhas)||0;
+  h+=chip('total enviados',tot+' e-mail'+(tot===1?'':'s')+(fal?' / '+fal+' falha'+(fal===1?'':'s'):''),
+           fal>0?'warn':'on');
   $('chips').innerHTML=h;
   const fill=(el,arr,cls)=>$(el).innerHTML=arr.length?arr.map(x=>'<li class="'+cls+'">'+x+'</li>').join('')
    :'<li class="empty">nenhum registro recente</li>';
@@ -310,7 +380,7 @@ async function refresh(){
 function chip(k,v,cls){return '<div class="chip"><div class="k">'+k+'</div><div class="v">'+
 (cls===undefined?v:'<span class="dot '+cls+'"></span>'+v)+'</div></div>'}
 refresh();setInterval(refresh,10000);
-/*FIM_OK_V4*/
+/*FIM_OK_V5*/
 </script></body></html>"""
 
 class H(BaseHTTPRequestHandler):
@@ -344,6 +414,10 @@ class H(BaseHTTPRequestHandler):
                 if not job: self._send(404, json.dumps({"erro": "job desconhecido"}), "application/json")
                 else: self._send(200, json.dumps({"running": job["running"], "done": job["done"],
                             "total": job["total"], "results": job["results"][-300:]}), "application/json")
+        elif p == "/api/templates":
+            if not self._authed(): self._send(401, json.dumps({"erro": "nao autenticado"}), "application/json")
+            else: self._send(200, json.dumps({"ok": True,
+                "templates": load_json(TEMPLATES_FILE, {"lista": []}).get("lista", [])}), "application/json")
         else: self._send(404, "nao encontrado", "text/plain")
     def do_POST(self):
         p = urlparse(self.path).path
@@ -412,9 +486,34 @@ class H(BaseHTTPRequestHandler):
             jid = start_job(recipients, subject, body_html, pdf_name, pdf_bytes)
             self._send(200, json.dumps({"ok": True, "job": jid, "total": len(recipients)}), "application/json")
             return
+        if p == "/api/templates":
+            try:
+                data = json.loads(body.decode(errors="ignore") or "{}")
+            except Exception:
+                self._send(400, json.dumps({"ok": False, "msg": "json invalido"}), "application/json")
+                return
+            db = load_json(TEMPLATES_FILE, {"lista": []})
+            if data.get("action") == "del":
+                db["lista"] = [t for t in db.get("lista", []) if t.get("id") != data.get("id")]
+                save_json(TEMPLATES_FILE, db)
+                self._send(200, json.dumps({"ok": True, "templates": db["lista"]}), "application/json")
+                return
+            nome = str(data.get("nome", "")).strip()[:60]
+            subject = str(data.get("subject", "")).strip()[:120]
+            html = str(data.get("html", ""))[:MAX_BODY]
+            if not nome or not subject or not html.strip():
+                self._send(400, json.dumps({"ok": False, "msg": "preencha nome, assunto e mensagem"}), "application/json")
+                return
+            lista = [t for t in db.get("lista", []) if t.get("nome") != nome]
+            lista.insert(0, {"id": secrets.token_hex(6), "nome": nome, "subject": subject,
+                             "html": html, "salvo": datetime.datetime.now().isoformat(timespec="seconds")})
+            db["lista"] = lista[:30]
+            save_json(TEMPLATES_FILE, db)
+            self._send(200, json.dumps({"ok": True, "templates": db["lista"]}), "application/json")
+            return
         self._send(404, "nao encontrado", "text/plain")
 
 if __name__ == "__main__":
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
-    print("painel v4 ativo na porta", PORT)
+    print("painel v5 ativo na porta", PORT)
     srv.serve_forever()
