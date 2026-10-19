@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Painel de Faturas v5.1 - instalador/atualizador de comando unico (GitHub + md5)
+# Painel de Faturas v5.2 - instalador/atualizador de comando unico (GitHub + md5)
 set -e
 RAIZ=/root/painel
 RAW=https://raw.githubusercontent.com/lostofc77-cpu/smtp-instalador/main/painel.py
@@ -8,7 +8,7 @@ mkdir -p "$RAIZ"
 systemctl stop painel-faturas 2>/dev/null || true
 if [ -f "$RAIZ/painel.py" ]; then grep -oP '(?<=ACCESS_CODE = ")[^"]+' "$RAIZ/painel.py" | head -1 > /root/codigo_painel.txt || true; fi
 curl -fsSL "$RAW" -o "$RAIZ/painel.py"
-ESP="4d2bef084dc0f4da0ed15d947206e10d"
+ESP="98fe63591323a7290918da3ba4193397"
 AT=$(md5sum "$RAIZ/painel.py" | cut -d" " -f1)
 if [ "$AT" != "$ESP" ]; then echo ">>> DOWNLOAD CORROMPIDO ($AT). Rode o comando novamente."; exit 1; fi
 CODE=$(tr -d "
@@ -35,7 +35,7 @@ curl -fsSL "%s" | bash
 chmod +x /usr/local/bin/atualizar-painel
 sleep 2
 echo "====================================================="
-echo " PAINEL v5.1: $(systemctl is-active painel-faturas) | HTTP: $(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/)"
+echo " PAINEL v5.2: $(systemctl is-active painel-faturas) | HTTP: $(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/)"
 echo " CODIGO DE ACESSO: $(grep -oP '(?<=ACCESS_CODE = ")[^"]+' "$RAIZ/painel.py")"
 echo " Para atualizar no futuro, basta rodar: atualizar-painel"
 echo "====================================================="
