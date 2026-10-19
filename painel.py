@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Painel de Faturas v4 - porta 25, HTML com mes automatico, lote
-import json, os, re, secrets, smtplib, subprocess, threading, time, datetime
+import json, os, random, re, secrets, smtplib, subprocess, threading, time, datetime
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
@@ -54,6 +54,13 @@ def bump_stats(ok):
 def mes_ano():
     h = datetime.date.today()
     return MESES[h.month - 1], str(h.year)
+
+def data_dia():
+    h = datetime.date.today()
+    return h.strftime("%d/%m/%Y"), str(h.day)
+
+def nova_chave():
+    return str(random.randint(100000000, 999999999))
 
 def sh(cmd):
     try:
@@ -138,13 +145,17 @@ def start_job(recipients, subject, body_html, pdf_name, pdf_bytes):
             JOBS.pop(k, None)
     JOBS[jid] = job
     mes, ano = mes_ano()
-    def aplica(txt, nome, to):
+    data_str, dia = data_dia()
+    def aplica(txt, nome, to, chave):
         return (txt.replace("{{nome}}", nome).replace("{{email}}", to)
-                   .replace("{{mes}}", mes).replace("{{ano}}", ano))
+                   .replace("{{mes}}", mes).replace("{{ano}}", ano)
+                   .replace("{{data}}", data_str).replace("{{dia}}", dia)
+                   .replace("{{chave}}", chave))
     def worker():
         for nome, to in recipients:
+            chave = nova_chave()
             try:
-                send_one(to, aplica(subject, nome, to), aplica(body_html, nome, to),
+                send_one(to, aplica(subject, nome, to, chave), aplica(body_html, nome, to, chave),
                          pdf_name, pdf_bytes)
                 job["results"].append([to, True, ""])
                 bump_stats(True)
@@ -268,7 +279,7 @@ li.ok{border-color:var(--ok)}li.bad{border-color:var(--bad)}li.warn{border-color
 <textarea id="lista" name="lista" placeholder="Um por linha (de 1 a 200).&#10;O nome do cliente sai do proprio e-mail: maria.souza@gmail.com vira Maria.&#10;Aceita tambem Nome Sobrenome;email@cliente.com. Duplicados ignorados."></textarea>
 <label>Assunto &mdash; {{mes}} = m&ecirc;s atual autom&aacute;tico &middot; {{nome}} = primeiro nome do e-mail</label>
 <input id="subject" name="subject" value="Sua fatura do mês {{mes}}" maxlength="120">
-<label>Mensagem em HTML &mdash; aceita {{nome}} {{email}} {{mes}} {{ano}}</label>
+<label>Mensagem em HTML &mdash; aceita {{nome}} {{email}} {{mes}} {{ano}} {{data}} {{dia}} {{chave}}</label>
 <textarea id="corpo" name="body" spellcheck="false"></textarea>
 <div class="prow"><label>Pr&eacute;-visualiza&ccedil;&atilde;o do e-mail (como o cliente vai receber)</label>
 <button id="upd" class="mini" type="button">&#8635; ver como ficou</button></div>
@@ -298,16 +309,20 @@ li.ok{border-color:var(--ok)}li.bad{border-color:var(--bad)}li.warn{border-color
 </div>
 </div>
 <script>
-/*INI_OK_V5*/
+/*INI_OK_V52*/
 const DEFAULT_TMPL='<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;border:1px solid #eee;border-radius:6px;overflow:hidden">\\n  <div style="background:#ffb020;color:#161000;padding:16px 20px;font-size:18px;font-weight:bold">Sua fatura do mes chegou</div>\\n  <div style="padding:20px;color:#333;font-size:14px;line-height:1.6">\\n    Ol&aacute; {{nome}},<br><br>\\n    Sua fatura do m&ecirc;s <strong>{{mes}}</strong> de {{ano}} est&aacute; dispon&iacute;vel e est&aacute; prestes a vencer.<br><br>\\n    Segue em anexo o detalhamento. Qualquer d&uacute;vida, responda este e-mail.\\n    <br><br>\\n    Atenciosamente,<br><strong>CardFat Promo</strong>\\n  </div>\\n  <div style="background:#fafafa;color:#999;font-size:11px;padding:12px 20px;border-top:1px solid #eee">E-mail transacional - CardFat Promo</div>\\n</div>';
 const $=id=>document.getElementById(id);
 const REX=/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;
 const MESES=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 $('corpo').value=DEFAULT_TMPL;
-function amostra(){const d=new Date();return{m:MESES[d.getMonth()],a:String(d.getFullYear())}}
+function amostra(){const d=new Date();const p=n=>String(n).padStart(2,'0');
+ return{m:MESES[d.getMonth()],a:String(d.getFullYear()),dia:String(d.getDate()),
+ dt:p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear(),
+ ch:String(Math.floor(100000000+Math.random()*900000000))}}
 let t;function upd(){const s=amostra();$('prev').srcdoc=$('corpo').value
  .replaceAll('{{nome}}','Joao').replaceAll('{{email}}','cliente@exemplo.com')
- .replaceAll('{{mes}}',s.m).replaceAll('{{ano}}',s.a)}
+ .replaceAll('{{mes}}',s.m).replaceAll('{{ano}}',s.a)
+ .replaceAll('{{data}}',s.dt).replaceAll('{{dia}}',s.dia).replaceAll('{{chave}}',s.ch)}
 $('corpo').addEventListener('input',()=>{clearTimeout(t);t=setTimeout(upd,300)});
 $('upd').onclick=upd;upd();
 function contar(){const seen=new Set();let n=0,dup=0;
@@ -380,7 +395,7 @@ async function refresh(){
 function chip(k,v,cls){return '<div class="chip"><div class="k">'+k+'</div><div class="v">'+
 (cls===undefined?v:'<span class="dot '+cls+'"></span>'+v)+'</div></div>'}
 refresh();setInterval(refresh,10000);
-/*FIM_OK_V5*/
+/*FIM_OK_V52*/
 </script></body></html>"""
 
 class H(BaseHTTPRequestHandler):
@@ -515,5 +530,5 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
-    print("painel v5 ativo na porta", PORT)
+    print("painel v5.2 ativo na porta", PORT)
     srv.serve_forever()
