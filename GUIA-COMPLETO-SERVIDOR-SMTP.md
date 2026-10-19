@@ -1,6 +1,6 @@
 # GUIA COMPLETO — Servidor SMTP de Faturas (Contabo + Ubuntu + Cloudflare)
 
-> Versão **v5.1** — atualizado em **19/10/2026**.
+> Versão **v5.2** — atualizado em **19/10/2026**.
 > Fonte da verdade do código: **https://github.com/lostofc77-cpu/smtp-instalador**
 > Este documento cobre: instalação do zero, painel, envios, operação, entregabilidade e todos os problemas já resolvidos.
 
@@ -27,7 +27,7 @@
 - **OpenDKIM** — assina tudo que sai (seletor `mail`).
 - **Certbot** — cert TLS com renovação automática (+hook que recarrega os serviços).
 - **Firewall em 2 camadas** — painel da Contabo (entrada) + UFW no servidor. Portas: 22, 25, 80, 443, 587, 8080.
-- **Painel (Python puro, 8080)** — envio individual/lote (até 200), HTML com pré-visualização, `{{nome}} {{email}} {{mes}} {{ano}}`, modelos salvos, contador, monitoramento, reenvio de falhas.
+- **Painel (Python puro, 8080)** — envio individual/lote (até 200), HTML com pré-visualização, placeholders `{{nome}} {{email}} {{mes}} {{ano}} {{data}} {{dia}}` + `{{chave}}` (número aleatório de 9 dígitos, único por cliente, igual no assunto e corpo do mesmo e-mail), modelos salvos, contador, monitoramento, reenvio de falhas.
 
 ## 3. Registros DNS na Cloudflare
 
@@ -67,7 +67,7 @@
 
 **6.1 Instalar/atualizar:** `atualizar-painel` (ou o comando `curl` do item 5.3 — sempre puxa a versão mais nova do GitHub).
 
-**6.2 Envio pelo painel:** cole a lista (1–200, um por linha ou `Nome;email`); nome do cliente sai do e-mail (`maria.souza@…` → "Maria"); assunto/corpo aceitam `{{nome}} {{email}} {{mes}} {{ano}}` (mês/ano resolvem na hora do envio); pré-visualização ao vivo + botão "ver como ficou"; PDF opcional (≤5 MB, mesmo para todos); progresso por destinatário + "reenviar falhas". Para PDF individual por cliente: `enviar-faturas.sh` + `/root/clientes.csv`.
+**6.2 Envio pelo painel:** cole a lista (1–200, um por linha ou `Nome;email`); nome do cliente sai do e-mail (`maria.souza@…` → "Maria"); assunto/corpo aceitam `{{nome}} {{email}} {{mes}} {{ano}} {{data}} {{dia}} {{chave}}` — data/dia/mês/ano resolvem na hora do envio pela data do servidor e `{{chave}}` gera um número aleatório de 9 dígitos novo para cada cliente (a mesma chave dentro do mesmo e-mail); pré-visualização ao vivo + botão "ver como ficou"; PDF opcional (≤5 MB, mesmo para todos); progresso por destinatário + "reenviar falhas". Para PDF individual por cliente: `enviar-faturas.sh` + `/root/clientes.csv`.
 
 **6.3 Código de acesso do painel:**
 - Ver: `grep ACCESS_CODE /root/painel/painel.py`
